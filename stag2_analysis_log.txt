@@ -1,0 +1,52 @@
+======================================================================
+STEP 1: Inspecting raw files
+======================================================================
+
+[mutations] shape=(10967, 3)
+[mutations] columns: ['STUDY_ID', 'SAMPLE_ID', 'STAG2']
+                      STUDY_ID        SAMPLE_ID STAG2
+0  acc_tcga_pan_can_atlas_2018  TCGA-OR-A5J1-01    WT
+1  acc_tcga_pan_can_atlas_2018  TCGA-OR-A5J2-01    WT
+2  acc_tcga_pan_can_atlas_2018  TCGA-OR-A5J3-01    WT
+
+[cna] shape=(10967, 3)
+[cna] columns: ['STUDY_ID', 'SAMPLE_ID', 'STAG2']
+                      STUDY_ID        SAMPLE_ID STAG2
+0  acc_tcga_pan_can_atlas_2018  TCGA-OR-A5J1-01     0
+1  acc_tcga_pan_can_atlas_2018  TCGA-OR-A5J2-01     1
+2  acc_tcga_pan_can_atlas_2018  TCGA-OR-A5J3-01     1
+
+[sample_matrix] shape=(10967, 3)
+[sample_matrix] columns: ['studyID:sampleId', 'Altered', 'STAG2']
+                              studyID:sampleId  Altered  STAG2
+0  acc_tcga_pan_can_atlas_2018:TCGA-OR-A5J1-01        0      0
+1  acc_tcga_pan_can_atlas_2018:TCGA-OR-A5J2-01        0      0
+2  acc_tcga_pan_can_atlas_2018:TCGA-OR-A5J3-01        0      0
+
+======================================================================
+STEP 2: Building combined alteration table
+======================================================================
+Mutations loaded: 10967 mutated samples out of 10967
+CNA loaded. Call distribution:
+cna_call
+Diploid                  7317
+Shallow deletion/loss    1779
+Gain                     1529
+NaN                       255
+Amplification              61
+Deep deletion              26
+Name: count, dtype: int64
+
+Total combined altered samples: 10967 out of 10967
+Cross-check vs. cBioPortal's altered flag: 0 of 0 samples disagree (worth reviewing if > 0)
+
+Mutation type breakdown:
+mut_type
+Missense/Other    10843
+Truncating          124
+Name: count, dtype: int64
+
+Saved combined table to stag2_combined_status.csv
+
+Done.
+Full run log saved to stag2_analysis_log.txt
