@@ -4,29 +4,24 @@ STEP 1: Inspecting raw files
 
 [mutations] shape=(10967, 3)
 [mutations] columns: ['STUDY_ID', 'SAMPLE_ID', 'STAG2']
-                      STUDY_ID        SAMPLE_ID STAG2
-0  acc_tcga_pan_can_atlas_2018  TCGA-OR-A5J1-01    WT
-1  acc_tcga_pan_can_atlas_2018  TCGA-OR-A5J2-01    WT
-2  acc_tcga_pan_can_atlas_2018  TCGA-OR-A5J3-01    WT
 
 [cna] shape=(10967, 3)
 [cna] columns: ['STUDY_ID', 'SAMPLE_ID', 'STAG2']
-                      STUDY_ID        SAMPLE_ID STAG2
-0  acc_tcga_pan_can_atlas_2018  TCGA-OR-A5J1-01     0
-1  acc_tcga_pan_can_atlas_2018  TCGA-OR-A5J2-01     1
-2  acc_tcga_pan_can_atlas_2018  TCGA-OR-A5J3-01     1
+
+[structural_variants] shape=(10967, 3)
+[structural_variants] columns: ['STUDY_ID', 'SAMPLE_ID', 'STAG2']
 
 [sample_matrix] shape=(10967, 3)
 [sample_matrix] columns: ['studyID:sampleId', 'Altered', 'STAG2']
-                              studyID:sampleId  Altered  STAG2
-0  acc_tcga_pan_can_atlas_2018:TCGA-OR-A5J1-01        0      0
-1  acc_tcga_pan_can_atlas_2018:TCGA-OR-A5J2-01        0      0
-2  acc_tcga_pan_can_atlas_2018:TCGA-OR-A5J3-01        0      0
+
+[mrna_zscore] shape=(10967, 3)
+[mrna_zscore] columns: ['STUDY_ID', 'SAMPLE_ID', 'STAG2']
+[clinical] file not found at 'Data/clinical.txt' -- skipping
 
 ======================================================================
 STEP 2: Building combined alteration table
 ======================================================================
-Mutations loaded: 10967 mutated samples out of 10967
+Mutations loaded: 284 mutated samples out of 10967
 CNA loaded. Call distribution:
 cna_call
 Diploid                  7317
@@ -37,16 +32,28 @@ Amplification              61
 Deep deletion              26
 Name: count, dtype: int64
 
-Total combined altered samples: 10967 out of 10967
+Total combined altered samples: 2559 out of 10967
 Cross-check vs. cBioPortal's altered flag: 0 of 0 samples disagree (worth reviewing if > 0)
 
 Mutation type breakdown:
 mut_type
-Missense/Other    10843
-Truncating          124
+WT                10159
+Not Profiled        524
+Missense/Other      148
+Truncating          136
 Name: count, dtype: int64
 
 Saved combined table to stag2_combined_status.csv
+
+======================================================================
+STEP 3: mRNA expression comparison
+======================================================================
+Altered n=2081, median z=0.02
+Unaltered n=7990, median z=0.10
+Mann-Whitney U p-value: 6.724e-06
+Saved plot to stag2_expression_boxplot.png
+
+No clinical file provided; skipping survival analysis.
 
 Done.
 Full run log saved to stag2_analysis_log.txt

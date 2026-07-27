@@ -1,4 +1,5 @@
 import sys
+import re
 import pandas as pd
 import numpy as np
 from pathlib import Path
@@ -10,10 +11,10 @@ GENE = "STAG2"
 FILES = {
     "mutations":     "Data/mutations.txt",        # required
     "cna":           "Data/cna.txt",               # required for the hemizygous-loss check
-    "structural_variants": None,              # optional, set path if you have it
+    "structural_variants": "Data/structural_variants.txt",              # optional, set path if you have it
     "sample_matrix": "Data/sample_matrix.txt", # cBioPortal's own 1/0 altered flag, for cross-checking
-    "mrna_zscore":   None,                    # optional, e.g. "mrna_zscore.txt"
-    "clinical":      None,                    # optional, download separately from "Clinical Data" tab
+    "mrna_zscore":   "Data/mRNA expression z-scores relative to all samples (log RNA Seq V2 RSEM).txt",                    # optional, e.g. "mrna_zscore.txt"
+    "clinical":      "Data/clinical.txt",                    # optional, download separately from "Clinical Data" tab
 }
 
 OUTPUT_CSV = "stag2_combined_status.csv"
@@ -57,37 +58,14 @@ def inspect(path, label):
     return df
 
 
-print("=" * 70)
-print("STEP 1: Inspecting raw files")
-print("=" * 70)
-raw = {name: inspect(path, name) for name, path in FILES.items()}
-
-
-# ------------------------------------------------------------------------
-# 2. GENERIC LOADER -- handles matrix or transposed-matrix orientation
-# ------------------------------------------------------------------------
 def load_gene_matrix(df, gene=GENE):
-    """Return a tidy 2-column frame: SAMPLE_ID, value -- from either
-    orientation of a single-gene cBioPortal download."""
     sample_cols = [c for c in df.columns if "SAMPLE" in c.upper()]
-    if sample_cols:
-        sample_col = sample_cols[0]
-        gene_cols = [c for c in df.columns if c.upper() == gene.upper()]
-        if not gene_cols:
-            raise ValueError(
-                f"Gene column '{gene}' not found. Columns present: {list(df.columns)}"
-            )
-        out = df[[sample_col, gene_cols[0]]].copy()
-        out.columns = ["SAMPLE_ID", "value"]
-        return out
-    else:
-        id_col = df.columns[0]
-        row = df[df[id_col].astype(str).str.upper() == gene.upper()]
-        if row.empty:
-            raise ValueError(f"Gene '{gene}' not found in first column of this file.")
-        out = row.drop(columns=[id_col]).T.reset_index()
-        out.columns = ["SAMPLE_ID", "value"]
-        return out
+    gene_cols = [c for c in df.columns if c.upper() == gene.upper()]
+
+    out = df[[sample_cols[0], gene_cols[0]]].copy()
+    out.columns = ["SAMPLE_ID", "value"]
+    return out
+        
 
 
 def classify_variant_classification(vc):
@@ -100,43 +78,98 @@ def classify_variant_classification(vc):
     return "Other"
 
 
+# def classify_protein_change(call):
+#     """Crude heuristic for protein-change notation (e.g. 'R216fs*45').
+#     Less reliable than Variant_Classification -- used only as a fallback."""
+#     if pd.isna(call) or str(call).strip() == "":
+#         return "WT"
+#     parts = [p.strip() for p in str(call).split(",") if p.strip()]
+#     for p in parts:
+#         pl = p.lower()
+#         if "fs" in pl or p.rstrip().endswith("*") or "splice" in pl:
+#             return "Truncating"
+#     return "Missense/Other"
+
+
+
+def classify_variant_classification(vc):
+    if vc in TRUNCATING_CLASSES:
+        return "Truncating"
+    if vc == "Missense_Mutation":
+        return "Missense"
+    if vc in {"In_Frame_Del", "In_Frame_Ins"}:
+        return "In-frame indel"
+    return "Other"
+ 
+ 
 def classify_protein_change(call):
     """Crude heuristic for protein-change notation (e.g. 'R216fs*45').
-    Less reliable than Variant_Classification -- used only as a fallback."""
-    if pd.isna(call) or str(call).strip() == "":
+    Less reliable than Variant_Classification -- used only as a fallback.
+ 
+    Handles the sentinel values seen in real cBioPortal single-gene
+    mutation matrix exports:
+      - "WT" -> profiled, no mutation found
+      - "NP" -> NOT profiled for this gene at all -- this is missing
+                data, not a confirmed negative, and is kept as its own
+                category rather than folded into "WT" so it can be
+                filtered out of altered-vs-unaltered comparisons later
+      - blank/NaN -> also treated as missing/not-profiled, on the same
+        logic: this file writes "WT" explicitly for confirmed wild-type,
+        so an empty cell more likely means no call was made than that
+        it's a redundant second way of saying "WT"
+    Multiple mutations in one cell can be separated by whitespace
+    (e.g. "K870Ifs*21 R216*", "Q963* L432F") or by commas depending on
+    export version -- split on either so each mutation is checked on
+    its own rather than as one combined string.
+    """
+    if pd.isna(call):
+        return "Not Profiled"
+    call_str = str(call).strip()
+    if call_str == "":
+        return "Not Profiled"
+    if call_str.upper() == "NP":
+        return "Not Profiled"
+    if call_str.upper() == "WT":
         return "WT"
-    parts = [p.strip() for p in str(call).split(",") if p.strip()]
+ 
+    parts = [p for p in re.split(r"[,\s]+", call_str) if p]
     for p in parts:
         pl = p.lower()
         if "fs" in pl or p.rstrip().endswith("*") or "splice" in pl:
             return "Truncating"
     return "Missense/Other"
+ 
 
+
+def bool_col(df, col):
+    if col in df.columns:
+        return df[col].fillna(False).astype(bool)
+    return pd.Series(False, index=df.index)
+
+
+def cna_loss_col(df):
+    if "cna_value" in df.columns:
+        return (df["cna_value"] <= -1).fillna(False)
+    return pd.Series(False, index=df.index)
 
 def load_mutation_data(df, gene=GENE):
-    """Handles either a long-format MAF-like file (with Variant_Classification)
-    or the simplified single-gene matrix download."""
-    cols_upper = {c.upper(): c for c in df.columns}
-    if "VARIANT_CLASSIFICATION" in cols_upper:
-        gene_col = cols_upper.get("HUGO_SYMBOL")
-        sample_col = cols_upper.get("TUMOR_SAMPLE_BARCODE") or cols_upper.get("SAMPLE_ID")
-        vc_col = cols_upper["VARIANT_CLASSIFICATION"]
-        sub = df[df[gene_col].astype(str).str.upper() == gene.upper()].copy()
-        sub = sub.rename(columns={sample_col: "SAMPLE_ID", vc_col: "variant_classification"})
-        sub["mut_type"] = sub["variant_classification"].apply(classify_variant_classification)
-        return sub[["SAMPLE_ID", "variant_classification", "mut_type"]].drop_duplicates("SAMPLE_ID")
-    else:
-        tidy = load_gene_matrix(df, gene).rename(columns={"value": "protein_change"})
-        tidy["has_mutation"] = tidy["protein_change"].notna() & (
-            tidy["protein_change"].astype(str).str.strip() != ""
-        )
-        tidy["mut_type"] = tidy["protein_change"].apply(classify_protein_change)
-        return tidy
+    tidy = load_gene_matrix(df, gene).rename(columns={"value": "protein_change"})
+    tidy["mut_type"] = tidy["protein_change"].apply(classify_protein_change)
+    tidy["profiled"] = tidy["mut_type"] != "Not Profiled"
+    tidy["has_mutation"] = ~tidy["mut_type"].isin(["WT", "Not Profiled"])
+    return tidy
 
 
-# ------------------------------------------------------------------------
-# 3. BUILD COMBINED PER-SAMPLE TABLE
-# ------------------------------------------------------------------------
+
+
+
+
+
+print("=" * 70)
+print("STEP 1: Inspecting raw files")
+print("=" * 70)
+raw = {name: inspect(path, name) for name, path in FILES.items()}
+
 print("\n" + "=" * 70)
 print("STEP 2: Building combined alteration table")
 print("=" * 70)
@@ -167,21 +200,6 @@ if raw.get("structural_variants") is not None:
 
 if combined is None:
     raise RuntimeError("No mutation or CNA file loaded -- nothing to analyze. Check FILES paths.")
-
-def bool_col(df, col):
-    """Return df[col] as a boolean Series aligned to df.index, or an
-    all-False Series of the same length if the column isn't present.
-    (combined.get(col, False) breaks when col is missing, since the
-    fallback plain bool has no .fillna() -- this avoids that.)"""
-    if col in df.columns:
-        return df[col].fillna(False).astype(bool)
-    return pd.Series(False, index=df.index)
-
-
-def cna_loss_col(df):
-    if "cna_value" in df.columns:
-        return (df["cna_value"] <= -1).fillna(False)
-    return pd.Series(False, index=df.index)
 
 
 # NOTE on X-linked hemizygosity: STAG2 sits on chromosome X. In males, a
@@ -239,7 +257,7 @@ if raw.get("mrna_zscore") is not None:
         print(f"Mann-Whitney U p-value: {p_val:.4g}")
 
         fig, ax = plt.subplots(figsize=(5, 5))
-        ax.boxplot([unaltered_vals, altered_vals], labels=["Unaltered", "Altered"])
+        ax.boxplot([unaltered_vals, altered_vals], tick_labels=["Unaltered", "Altered"])
         ax.set_ylabel(f"{GENE} mRNA z-score")
         ax.set_title(f"{GENE} expression by alteration status\n(p={p_val:.3g})")
         plt.tight_layout()
@@ -302,6 +320,8 @@ if raw.get("clinical") is not None:
         plt.savefig("stag2_survival_km.png", dpi=150)
         print(f"Log-rank p-value: {lr.p_value:.4g}")
         print("Saved plot to stag2_survival_km.png")
+else:
+    print("\nNo clinical file provided; skipping survival analysis.")
 
 print("\nDone.")
 print(f"Full run log saved to {LOG_TXT}")
